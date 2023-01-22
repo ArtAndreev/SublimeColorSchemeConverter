@@ -1,9 +1,19 @@
-Sublime Color Scheme Converter
-==============================
+Sublime Color Scheme Converter (fork)
+=====================================
+
+This fork rewrites script for command-line usage.
+
+How to run:
+
+```sh
+./sublime_color_scheme_converter.py <theme.sublime-color-scheme>
+```
+
+The result is created in working directory under the name `theme.tmTheme`.
 
 **Note**: Not all features of the `sublime-color-scheme` format are supported. See the list of supported features below.
 
-Simple Sublime Text 3 plugin to convert the `sublime-color-scheme` json format to `tmTheme` plist format. While the configuration of json files is far more convenient, some plugins rely on a `tmTheme`-formatted color scheme.
+Simple CLI script to convert the `sublime-color-scheme` json format to `tmTheme` plist format. While the configuration of json files is far more convenient, some plugins rely on a `tmTheme`-formatted color scheme.
 
 Supported features (see [documentation](https://www.sublimetext.com/docs/3/color_schemes.html)):
 * Variables
@@ -14,7 +24,7 @@ Supported features (see [documentation](https://www.sublimetext.com/docs/3/color
 * Replace underscore by uppercase letters
 * Scopes in **hashed syntax highlighting** is recognized and converted to lists
 
-The plugin tries to replace all patterns, where any color is recognized. Therefore `color(#000000 blend(#ffffff 50%))` is replaced by `#000000`, since the blend() adjuster syntax is not supported.
+The CLI script tries to replace all patterns, where any color is recognized. Therefore `color(#000000 blend(#ffffff 50%))` is replaced by `#000000`, since the blend() adjuster syntax is not supported.
 
 Caveats:
 --------

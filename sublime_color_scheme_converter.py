@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """
 SublimeColorSchemeConverter
 
@@ -11,11 +13,9 @@ import plistlib
 import colorsys
 import traceback
 import collections
+import sys
 
-import sublime
-import sublime_plugin
-
-from SublimeColorSchemeConverter.lib import plistlib
+from lib import plistlib
 
 re_var = re.compile("var\([^\)]+\)")
 re_alpha = re.compile("alpha\(((0\.)?[0-9]+)\)")
@@ -97,130 +97,92 @@ def try_match_color(string):
         hexcode = string
     return hexcode
 
-class ConvertSublimeColorSchemeCommand(sublime_plugin.TextCommand):
+def convert_name(string):
+    return re.sub(
+        "_([a-z,A-Z,0-9])",
+        lambda match: match.group(1).upper(),
+        string
+    )
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.filename = None
-        self.theme = None
-        self.output = None
-        self.output_view = None
-
-    def convert_name(self, string):
-        return re.sub(
-            "_([a-z,A-Z,0-9])",
-            lambda match: match.group(1).upper(),
-            string
-        )
-
-    def parse_color(self, key, variables):
-        if key in list(variables):
-            return try_match_color(variables[key])
+def parse_color(key, variables):
+    if variables and key in list(variables):
+        return try_match_color(variables[key])
+    else:
+        var = re_var.search(key)
+        if var:
+            color = variables.get(var.group(), var.group())
+            return try_match_color(key.replace(var.group(), color))
         else:
-            var = re_var.search(key)
-            if var:
-                color = variables.get(var.group(), var.group())
-                return try_match_color(key.replace(var.group(), color))
-            else:
-                return try_match_color(key)
+            return try_match_color(key)
 
-    def parse_settings(self, settings, variables):
-        parsed = {}
-        for key in list(settings):
-            value = settings[key]
-            parsed[self.convert_name(key)] = self.parse_color(value, variables)
-        return parsed
+def parse_settings(settings, variables):
+    parsed = {}
+    for key in list(settings):
+        value = settings[key]
+        parsed[convert_name(key)] = parse_color(value, variables)
+    return parsed
 
-    def parse_scope(self, scope):
-        parsed = self.convert_name(scope)
-        parsed = re.sub("\s(-|\|)\s", ", ", parsed)
-        parsed = re.sub("\s*(\(|\))\s*", " ", parsed)
-        return parsed
+def parse_scope(scope):
+    parsed = convert_name(scope)
+    parsed = re.sub("\s(-|\|)\s", ", ", parsed)
+    parsed = re.sub("\s*(\(|\))\s*", " ", parsed)
+    return parsed
 
-    def parse_rules(self, rules, variables):
-        parsed = []
-        for settings in rules:
-            rule = {}
-            name = settings.pop("name", None)
-            if name:
-                rule["name"] = name
-            scope = settings.pop("scope", None)
-            if scope:
-                rule["scope"] = self.parse_scope(scope)
-            rule["settings"] = self.parse_settings(settings, variables)
-            parsed.append(rule)
-        return parsed
+def parse_rules(rules, variables):
+    parsed = []
+    for settings in rules:
+        rule = {}
+        name = settings.pop("name", None)
+        if name:
+            rule["name"] = name
+        scope = settings.pop("scope", None)
+        if scope:
+            rule["scope"] = parse_scope(scope)
+        rule["settings"] = parse_settings(settings, variables)
+        parsed.append(rule)
+    return parsed
 
-    def parse(self):
-        name = self.theme.get("name", None)
-        author = self.theme.get("author", None)
-        variables = self.theme.get("variables", None)
-        globals_ = self.theme["globals"]
-        rules = self.theme["rules"]
+def parse(source):
+    name = source.get("name", "undefined")
+    author = source.get("author", "undefined")
+    variables = source.get("variables", None)
+    globals_ = source["globals"]
+    rules = source["rules"]
 
+    if variables:
         for key in list(variables):
             variables["var({})".format(key)] = variables.pop(key)
 
-        settings = self.parse_settings(globals_, variables)
-        rules = self.parse_rules(rules, variables)
-        self.theme = {
-            "name": name,
-            "author": author,
-            "settings": [{"settings": settings}] + rules
-        }
+    settings = parse_settings(globals_, variables)
+    rules = parse_rules(rules, variables)
+    return {
+        "name": name,
+        "author": author,
+        "settings": [{"settings": settings}] + rules
+    }
 
-    def convert(self):
-        error = False
-        try:
-            dumps = plistlib.dumps(self.theme, sort_keys=False)
-            self.output = dumps.decode("UTF-8")
-        except Exception:
-            error = True
-            sublime.error_message("Could not convert Sublime Color Scheme")
-            print("SublimeColorSchemeConverter:")
-            print(traceback.format_exc())
-        return error
+def convert(theme):
+    dumps = plistlib.dumps(theme, sort_keys=False)
+    return dumps.decode("UTF-8")
 
-    def read_source(self):
-        error = False
-        self.filename = self.view.file_name()
-        try:
-            if self.filename and os.path.exists(self.filename):
-                with open(self.filename) as sublime_color_scheme:
-                    self.theme = json.load(sublime_color_scheme)
-        except Exception:
-            error = True
-            sublime.error_message("Could not read source")
-            print("SublimeColorSchemeConverter:")
-            print(traceback.format_exc())
-        return error
+def read_source(src):
+    with open(src) as sublime_color_scheme:
+        return json.load(sublime_color_scheme)
 
-    def write_buffer(self, edit):
-        error = False
-        output_name = os.path.splitext(os.path.basename(self.filename))[0] \
-                      + ".tmTheme"
-        try:
-            self.output_view = self.view.window().new_file()
-            self.output_view.set_encoding("UTF-8")
-            self.output_view.set_name(output_name)
-            self.output_view.replace(
-                edit,
-                sublime.Region(0, self.view.size()),
-                self.output
-            )
-            self.output = None
-        except Exception:
-            error = True
-            sublime.error_message("Could not write buffer")
-            print("SublimeColorSchemeConverter:")
-            print(traceback.format_exc())
-        return error
+def write_buffer(output, src):
+    output_name = os.path.splitext(os.path.basename(src))[0] + ".tmTheme"
+    with open(output_name, "w") as output_file:
+        output_file.write(output)
 
-    def run(self, edit):
-        if not self.read_source():
-            if not self.parse():
-                if not self.convert():
-                    self.write_buffer(edit)
-        self.filename = None
-        self.theme = None
-        self.output = None
+def run(src):
+    source = read_source(src)
+    theme = parse(source)
+    output = convert(theme)
+    write_buffer(output, src)
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("expected 2 args")
+        sys.exit(1)
+
+    run(sys.argv[1])
